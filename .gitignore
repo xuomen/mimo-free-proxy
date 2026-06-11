@@ -1,0 +1,5 @@
+# 运行时产物 (不应提交)
+proxy.env
+mimo-free-client
+*.log
+__pycache__/
