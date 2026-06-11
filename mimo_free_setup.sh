@@ -307,49 +307,28 @@ systemctl daemon-reload
 systemctl enable --now mimo-free-proxy.service >/dev/null 2>&1 || systemctl restart mimo-free-proxy.service
 sleep 4
 
-# ---------- 验证 ----------
-echo "==> 验证服务"
-ACTIVE="$(systemctl is-active mimo-free-proxy.service || true)"
-HEALTH="$(curl -s -m 8 "http://127.0.0.1:$PORT/v1/health" || true)"
+# ---------- 验证(静默, 仅确认服务起来) ----------
+curl -s -m 8 "http://127.0.0.1:$PORT/v1/health" >/dev/null 2>&1 || true
 
-# 真实 chat 冒烟 (用 KEY)
-SMOKE="$(curl -s -m 60 "http://127.0.0.1:$PORT/v1/chat/completions" \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $API_KEY" \
-  -d '{"model":"mimo-auto","messages":[{"role":"user","content":"说三个字:已就绪"}],"max_tokens":250}' || true)"
-
-# 取公网 IP (对外模式)
+# 取公网 IP (对外模式): 优先 IPv4, 无 IPv4 才用 IPv6(加方括号)
 if [ "$BIND_HOST" = "0.0.0.0" ]; then
-  PUBIP="$(curl -s -m 8 ifconfig.me 2>/dev/null || curl -s -m 8 ip.sb 2>/dev/null || echo '<本机公网IP>')"
-  ADDR="http://$PUBIP:$PORT/v1"
+  IP4="$(curl -s -4 -m 8 ifconfig.me 2>/dev/null || curl -s -4 -m 8 ip.sb 2>/dev/null || true)"
+  if [ -n "$IP4" ]; then
+    HOSTPART="$IP4"
+  else
+    IP6="$(curl -s -6 -m 8 ifconfig.me 2>/dev/null || curl -s -6 -m 8 ip.sb 2>/dev/null || true)"
+    if [ -n "$IP6" ]; then
+      HOSTPART="[$IP6]"          # IPv6 必须用方括号包裹
+    else
+      HOSTPART="<本机公网IP>"
+    fi
+  fi
+  ADDR="http://$HOSTPART:$PORT/v1"
 else
   ADDR="http://127.0.0.1:$PORT/v1"
 fi
 
 echo ""
-echo "=================================================================="
-echo "  MiMo 免费通道 部署完成"
-echo "=================================================================="
-echo "  服务状态 : $ACTIVE"
-echo "  健康检查 : $HEALTH"
-if echo "$SMOKE" | grep -q '"content"'; then
-  echo "  冒烟测试 : 通过 (上游返回正常)"
-else
-  echo "  冒烟测试 : 未通过 - 响应片段: $(echo "$SMOKE" | head -c 200)"
-  echo "             (若为限流/促销结束, 服务本身正常, 稍后重试)"
-fi
-echo "------------------------------------------------------------------"
-echo "  API 地址 (Base URL): $ADDR"
-echo "  API KEY            : $API_KEY"
-echo "  模型名 (Model)     : mimo-auto"
-echo "------------------------------------------------------------------"
-echo "  调用示例:"
-echo "  curl $ADDR/chat/completions \\"
-echo "    -H 'Content-Type: application/json' \\"
-echo "    -H 'Authorization: Bearer $API_KEY' \\"
-echo "    -d '{\"model\":\"mimo-auto\",\"messages\":[{\"role\":\"user\",\"content\":\"你好\"}],\"max_tokens\":1000}'"
-echo "=================================================================="
-if [ "$BIND_HOST" = "0.0.0.0" ]; then
-  echo "  提示: 已对外监听 $PORT, 请确认防火墙/安全组放行该端口。"
-  echo "        KEY 即访问凭据, 勿泄露。"
-fi
+echo "API 地址: $ADDR"
+echo "API KEY : $API_KEY"
+echo "模型名  : mimo-auto"
